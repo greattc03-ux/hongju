@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>✨ 홍주초 초과근무 현황 ✨</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect, useMemo } from 'https://esm.sh/react@18';
+    import { createRoot } from 'https://esm.sh/react-dom@18/client';
+    import { Clock, MapPin, User, LogOut, Edit2, AlertCircle, CheckCircle2, Star, ChevronLeft, X, MessageSquare, Phone, ChevronDown, RefreshCw } from 'https://esm.sh/lucide-react@0.292.0';
+
+    // 🔥 구글 시트 URL
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwuwO8lQmoIRQYlAQdhiO2FnZzD82TrXs7FqnICPup72uuzSFAxvUUXruMbxAorX-9r/exec"; 
+
+    // ✨ 강력한 에러 방어막 함수들
+    const getSafeArray = (key) => {
+      try {
+        const val = JSON.parse(localStorage.getItem(key));
+        return Array.isArray(val) ? val : [];
+      } catch(e) { return []; }
+    };
+    
+    const getSafeObject = (key) => {
+      try {
+        const val = JSON.parse(localStorage.getItem(key));
+        return (val && typeof val === 'object' && !Array.isArray(val)) ? val : {};
+      } catch(e) { return {}; }
+    };
+
+    function App() {
+      const [currentDate, setCurrentDate] = useState(new Date());
+      const [name, setName] = useState('');
+      const [location, setLocation] = useState('');
+      const [contact, setContact] = useState(''); 
+      const [memo, setMemo] = useState('');
+      const [hour, setHour] = useState('');
+      const [minute, setMinute] = useState('00');
+      
+      const [records, setRecords] = useState([]); 
+      const [myRecordId, setMyRecordId] = useState(null); 
+      const [userMemory, setUserMemory] = useState({}); 
+      const [isEditing, setIsEditing] = useState(false);
+      
+      // 자동완성 추천 목록 상태
+      const [suggestions, setSuggestions] = useState([]);
+      
+      // 지난 내역 관련 상태
+      const [showHistory, setShowHistory] = useState(false); 
+      const [pastRecords, setPastRecords] = useState([]);
+      const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+      // ✨ 지난 내역 비밀번호 잠금 상태
+      const [showPasswordModal, setShowPasswordModal] = useState(false);
+      const [historyPassword, setHistoryPassword] = useState('');
+
+      // ✨ 대리 입력 전용 상태
+      const [showProxyModal, setShowProxyModal] = useState(false);
+      const [pId, setPId] = useState(null);
+      const [pName, setPName] = useState('');
+      const [pHour, setPHour] = useState('');
+      const [pMinute, setPMinute] = useState('00');
+      const [pContact, setPContact] = useState('');
+      const [pLocation, setPLocation] = useState('');
+      const [pMemo, setPMemo] = useState('');
+
+      // 수동 새로고침 상태
+      const [isRefreshing, setIsRefreshing] = useState(false);
+
+      const days = ['일', '월', '화', '수', '목', '금', '토'];
+      const dateString = `${currentDate.getFullYear()}년 ${currentDate.getMonth() + 1}월 ${currentDate.getDate()}일 ${days[currentDate.getDay()]}요일`;
+
+      const hourOptions = useMemo(() => {
+        const hours = [];
+        for (let i = 9; i <= 23; i++) {
+          hours.push(i.toString().padStart(2, '0'));
+        }
+        return hours;
+      }, []);
+      const minuteOptions = ['00', '10', '20', '30', '40', '50'];
+
+      // ✨ 서버 데이터 정제
+      const sanitizeServerData = (data) => {
+        if (!Array.isArray(data)) return [];
+        return data
+          .filter(r => r.name && String(r.name).trim() !== '') // 유령 데이터 차단
+          .map(r => {
+            let locStr = r.location ? String(r.location).replace(/^'/, '') : '';
+            if (locStr.includes('T') && (locStr.endsWith('Z') || locStr.includes('+09:00'))) {
+              const d = new Date(locStr);
+              if (!isNaN(d.getTime())) {
+                locStr = `${d.getMonth() + 1}-${d.getDate()}`;
+              }
+            }
+            return { ...r, location: locStr };
+          });
+      };
+
+      // ✨ 서버에서 최신 데이터를 가져오는 함수 (오늘 날짜 요청 및 가장 강력한 부드러운 비교)
+      const fetchUpdates = async () => {
+        if (!SCRIPT_URL) return null;
+        try {
+          // 💡 서버에 "오늘 날짜 데이터만 줘!" 라고 요청할 때 쓸 문자열 생성
+          const todayReqStr = `${currentDate.getFullYear()}년 ${currentDate.getMonth() + 1}월 ${currentDate.getDate()}일`;
+          
+          const response = await fetch(`${SCRIPT_URL}?action=today&todayStr=${encodeURIComponent(todayReqStr)}&t=${new Date().getTime()}`);
+          const rawData = await response.json();
+          const data = sanitizeServerData(rawData);
+          
+          // 💡 가장 강력한 '오늘' 판단 기준 생성
+          const currentYear = currentDate.getFullYear();
+          const currentMonth = currentDate.getMonth() + 1;
+          const currentDay = currentDate.getDate();
+          
+          // 시트에 저장될 수 있는 다양한 형태의 '오늘' 문자열들
+          const todayStr1 = `${currentYear}년 ${currentMonth}월 ${currentDay}일`;
+          const todayStr2 = `${currentYear}.${currentMonth}.${currentDay}`;
+          const todayStr3 = `${currentYear}-${currentMonth < 10 ? '0'+currentMonth : currentMonth}-${currentDay < 10 ? '0'+currentDay : currentDay}`;
+          const todayStr4 = `${currentYear}년 ${currentMonth}월 ${currentDay}일 ${days[currentDate.getDay()]}요일`; // 💡 요일까지 포함된 완벽한 오늘 문자열!
+
+          const todayRecords = data.filter(r => {
+            if (!r.date) return false;
+            const dStr = String(r.date).replace(/'/g, '').trim();
+            
+            // 1. 문자열 직접 비교 (요일 포함 형태까지 확실하게 체크!)
+            if (
+              dStr.includes(todayStr1) || 
+              dStr.includes(todayStr2) || 
+              dStr.includes(todayStr3) || 
+              dStr.includes(todayStr4) || // 요일 포함 매칭
+              dStr.includes(dateString)    // 화면 상단에 표시되는 날짜(요일 포함) 매칭
+            ) {
+              return true;
+            }
+            
+            // 2. Date 객체로 변환 가능한 경우 (T가 포함된 ISO 형식 등)
+            if (dStr.includes('T')) {
+              const d = new Date(dStr);
+              if (!isNaN(d.getTime())) {
+                return d.getFullYear() === currentYear &&
+                       d.getMonth() + 1 === currentMonth &&
+                       d.getDate() === currentDay;
+              }
+            }
+            
+            // 3. 정규식으로 연/월/일 숫자만 확실하게 뽑아내서 오늘이 맞는지 크로스 체크 (최후의 보루!)
+            const match = dStr.match(/(\d{4})[^\d]*(\d{1,2})[^\d]*(\d{1,2})/);
+            if (match) {
+               if (parseInt(match[1]) === currentYear && 
+                   parseInt(match[2]) === currentMonth && 
+                   parseInt(match[3]) === currentDay) {
+                   return true;
+               }
+            }
+            
+            return false;
+          }).map(r => {
+            const isLeft = String(r.status || '').includes('퇴근');
+            const leaveTime = isLeft ? String(r.status).split(' ')[0] : null;
+            
+            let timeStr = String(r.time || '');
+            if (timeStr.includes('T')) {
+              const d = new Date(timeStr);
+              if (!isNaN(d.getTime())) {
+                timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+              }
+            }
+
+            return {
+              id: String(r.id),
+              name: String(r.name || ''),
+              time: timeStr,
+              contact: String(r.contact || ''),
+              location: r.location || '',
+              memo: r.memo || '',
+              status: r.status || '',
+              isLeft: isLeft,
+              leaveTime: leaveTime
+            };
+          });
+
+          setRecords(todayRecords);
+          return todayRecords;
+        } catch (e) {
+          console.error("서버 데이터 로드 실패", e);
+          return null;
+        }
+      };
+
+      // ✨ 서버 및 로컬 데이터 동기화
+      useEffect(() => {
+        const loadInitialData = async () => {
+          const savedMemory = getSafeObject('userMemory');
+          const savedMyId = localStorage.getItem('myRecordId');
+          setUserMemory(savedMemory);
+          
+          if (savedMyId && savedMyId !== "null" && savedMyId !== "undefined") {
+            setMyRecordId(savedMyId);
+          }
+          setHour(hourOptions[0]);
+          setPHour(hourOptions[0]); 
+
+          const todayRecords = await fetchUpdates();
+          
+          if (todayRecords) {
+            if (savedMyId) {
+              const myServerStatus = todayRecords.find(tr => tr.id === savedMyId);
+              if (!myServerStatus || myServerStatus.isLeft) {
+                setMyRecordId(null);
+                localStorage.removeItem('myRecordId');
+              }
+            }
+          } else {
+            setRecords(getSafeArray('schoolRecords'));
+          }
+        };
+
+        loadInitialData();
+
+        const intervalId = setInterval(async () => {
+          const freshRecords = await fetchUpdates();
+          setMyRecordId(prevId => {
+            if (prevId && freshRecords) {
+              const myServerStatus = freshRecords.find(tr => tr.id === prevId);
+              if (!myServerStatus || myServerStatus.isLeft) {
+                localStorage.removeItem('myRecordId');
+                return null;
+              }
+            }
+            return prevId;
+          });
+        }, 60000);
+
+        const handleVisibilityChange = async () => {
+          if (document.visibilityState === 'visible') {
+            const freshRecords = await fetchUpdates();
+            setMyRecordId(prevId => {
+              if (prevId && freshRecords) {
+                const myServerStatus = freshRecords.find(tr => tr.id === prevId);
+                if (!myServerStatus || myServerStatus.isLeft) {
+                  localStorage.removeItem('myRecordId');
+                  return null;
+                }
+              }
+              return prevId;
+            });
+          }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+          clearInterval(intervalId);
+          document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+      }, [hourOptions, currentDate, dateString]);
+
+      const safeRecords = Array.isArray(records) ? records : [];
+      const safePastRecords = Array.isArray(pastRecords) ? pastRecords : [];
+
+      // ✨ 동명이인 구분 자동완성 로직
+      useEffect(() => {
+        if (isEditing) {
+          setSuggestions([]); 
+          return;
+        }
+
+        if (name && name.length >= 1) {
+          const allSources = [
+            ...safeRecords.map(r => ({ name: r.name, location: r.location, contact: r.contact, todayId: r.isLeft ? null : r.id })),
+            ...safePastRecords.map(r => ({ name: r.name, location: r.location, contact: r.contact, todayId: null })),
+            ...Object.keys(userMemory).map(k => ({ name: k, location: userMemory[k]?.location, contact: userMemory[k]?.contact, todayId: null }))
+          ];
+
+          const filtered = allSources.filter(p => p.name && String(p.name).includes(name));
+          const uniqueMap = new Map();
+
+          filtered.forEach(p => {
+            const key = `${p.name}-${p.location}-${p.contact}`;
+            if (!uniqueMap.has(key)) {
+              uniqueMap.set(key, { ...p });
+            } else {
+              if (!uniqueMap.get(key).todayId && p.todayId) {
+                uniqueMap.get(key).todayId = p.todayId;
+              }
+            }
+          });
+
+          setSuggestions(Array.from(uniqueMap.values()).slice(0, 5));
+        } else {
+          setSuggestions([]);
+        }
+      }, [name, safeRecords, safePastRecords, userMemory, isEditing]);
+
+      const handleSelectSuggestion = (person) => {
+        setName(person.name || '');
+        setLocation(person.location || '');
+        setContact(person.contact || '');
+        setSuggestions([]);
+
+        if (person.todayId) {
+          const existingRecord = safeRecords.find(r => r.id === person.todayId);
+          if (existingRecord) {
+            setMemo(existingRecord.memo || '');
+            const timeStr = existingRecord.time || '00:00';
+            const [h, m] = timeStr.split(':');
+            setHour(h || '09');
+            setMinute(m || '00');
+          }
+          setMyRecordId(person.todayId);
+          localStorage.setItem('myRecordId', person.todayId);
+          setIsEditing(true); 
+        }
+      };
+
+      const formatPhoneNumber = (num) => {
+        if (!num) return '';
+        const cleaned = ('' + num).replace(/\D/g, ''); 
+        const match = cleaned.match(/^(\d{2,3})(\d{3,4})(\d{4})$/);
+        if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+        return cleaned;
+      };
+
+      const sendToGoogleSheet = async (action, recordData) => {
+        if (!SCRIPT_URL) return; 
+        try {
+          await fetch(SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: action, record: recordData })
+          });
+        } catch (e) { console.log("시트 전송 에러:", e); }
+      };
+
+      // 💡 내 폰용 저장 함수
+      const handleSave = () => {
+        if (!name || !hour || !contact) {
+          alert("이름, 시간, 연락처를 모두 입력해주세요! 🥺");
+          return;
+        }
+
+        const formattedContact = formatPhoneNumber(contact);
+        const timeString = `${hour}:${minute}`;
+        
+        const newMemory = { ...userMemory, [name]: { location, contact: formattedContact } };
+        setUserMemory(newMemory);
+        localStorage.setItem('userMemory', JSON.stringify(newMemory));
+
+        let updatedRecords;
+        let recordId;
+        let actionType;
+        let currentRecord;
+
+        if (myRecordId) {
+          recordId = myRecordId;
+          actionType = 'update';
+          currentRecord = { id: recordId, name, location, contact: formattedContact, memo, time: timeString, isLeft: false };
+          updatedRecords = safeRecords.map(r => r.id === myRecordId ? currentRecord : r);
+        } else {
+          recordId = Date.now().toString();
+          actionType = 'save';
+          currentRecord = { id: recordId, name, location: location || '', contact: formattedContact || '', memo: memo || '', time: timeString, isLeft: false };
+          updatedRecords = [...safeRecords, currentRecord];
+          setMyRecordId(recordId);
+          localStorage.setItem('myRecordId', recordId);
+        }
+
+        setRecords(updatedRecords);
+        localStorage.setItem('schoolRecords', JSON.stringify(updatedRecords));
+        setContact(formattedContact); 
+        setIsEditing(false);
+
+        sendToGoogleSheet(actionType, {
+          id: currentRecord.id,
+          date: dateString,
+          name: currentRecord.name,
+          time: currentRecord.time,
+          contact: currentRecord.contact,
+          location: currentRecord.location ? "'" + currentRecord.location : "",
+          memo: currentRecord.memo,
+          status: '근무중'
+        });
+      };
+
+      // 💡 내 폰용 퇴근 함수
+      const handleLeave = () => {
+        const now = new Date();
+        const leaveTimeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const myCurrentRecord = safeRecords.find(r => r.id === myRecordId);
+        const updatedRecords = safeRecords.map(r => r.id === myRecordId ? { ...r, isLeft: true, leaveTime: leaveTimeStr } : r);
+        
+        setRecords(updatedRecords);
+        localStorage.setItem('schoolRecords', JSON.stringify(updatedRecords));
+        
+        if (myCurrentRecord) {
+          sendToGoogleSheet('update', {
+            id: myCurrentRecord.id,
+            date: dateString,
+            name: myCurrentRecord.name,
+            time: myCurrentRecord.time,
+            contact: myCurrentRecord.contact,
+            location: myCurrentRecord.location ? "'" + myCurrentRecord.location : "",
+            memo: myCurrentRecord.memo,
+            status: `${leaveTimeStr} 퇴근완료`
+          });
+        }
+
+        setMyRecordId(null);
+        setIsEditing(false);
+        localStorage.removeItem('myRecordId');
+        setName(''); setLocation(''); setContact(''); setMemo('');
+      };
+
+      // ✨ 수동 새로고침 함수
+      const handleManualRefresh = async () => {
+        setIsRefreshing(true);
+        await fetchUpdates();
+        setTimeout(() => setIsRefreshing(false), 600); 
+      };
+
+      // ✨ 대리 입력 모달 열기 (새로 등록)
+      const openNewProxyModal = () => {
+        setPId(null);
+        setPName('');
+        setPHour(hourOptions[0]);
+        setPMinute('00');
+        setPContact('');
+        setPLocation('');
+        setPMemo('');
+        setShowProxyModal(true);
+      };
+
+      // ✨ 대리 입력 모달 열기 (기존 인원 수정 및 '퇴근 취소 복구')
+      const openEditProxyModal = (user) => {
+        setPId(user.id);
+        setPName(user.name || '');
+        const timeStr = user.time || '09:00';
+        const [h, m] = timeStr.split(':');
+        setPHour(h || '09');
+        setPMinute(m || '00');
+        setPContact(user.contact || '');
+        setPLocation(user.location || '');
+        setPMemo(user.memo || '');
+        setShowProxyModal(true);
+      };
+
+      // ✨ 대리 저장/수정 함수 (복구 기능 포함)
+      const handleProxySave = () => {
+        if (!pName || !pHour || !pContact) {
+          alert("대리 입력 대상의 이름, 시간, 연락처를 모두 입력해주세요!");
+          return;
+        }
+
+        const formattedContact = formatPhoneNumber(pContact);
+        const timeString = `${pHour}:${pMinute}`;
+
+        let updatedRecords;
+        let recordId = pId;
+        let actionType;
+        let currentRecord;
+
+        if (pId) {
+          actionType = 'update';
+          // 💡 수정 시 무조건 isLeft를 false로 만들어서 '근무중' 상태 복구
+          currentRecord = { id: recordId, name: pName, location: pLocation, contact: formattedContact, memo: pMemo, time: timeString, isLeft: false };
+          updatedRecords = safeRecords.map(r => r.id === pId ? currentRecord : r);
+        } else {
+          recordId = Date.now().toString() + "-proxy"; 
+          actionType = 'save';
+          currentRecord = { id: recordId, name: pName, location: pLocation, contact: formattedContact, memo: pMemo, time: timeString, isLeft: false };
+          updatedRecords = [...safeRecords, currentRecord];
+        }
+
+        setRecords(updatedRecords); 
+        setShowProxyModal(false);
+
+        sendToGoogleSheet(actionType, {
+          id: currentRecord.id,
+          date: dateString,
+          name: currentRecord.name,
+          time: currentRecord.time,
+          contact: currentRecord.contact,
+          location: currentRecord.location ? "'" + currentRecord.location : "",
+          memo: currentRecord.memo,
+          status: '근무중' 
+        });
+      };
+
+      // ✨ 대리 퇴근 함수
+      const handleProxyLeave = () => {
+        if (!pId) return;
+        const now = new Date();
+        const leaveTimeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const proxyRecord = safeRecords.find(r => r.id === pId);
+        const updatedRecords = safeRecords.map(r => r.id === pId ? { ...r, isLeft: true, leaveTime: leaveTimeStr } : r);
+
+        setRecords(updatedRecords);
+        setShowProxyModal(false);
+
+        if (proxyRecord) {
+          sendToGoogleSheet('update', {
+            id: proxyRecord.id,
+            date: dateString,
+            name: proxyRecord.name,
+            time: proxyRecord.time,
+            contact: proxyRecord.contact,
+            location: proxyRecord.location ? "'" + proxyRecord.location : "",
+            memo: proxyRecord.memo,
+            status: `${leaveTimeStr} 퇴근완료`
+          });
+        }
+      };
+
+      // ✨ [보안 및 날짜 패치] 과거 내역 불러오기 (비밀번호 전송 & 3일치 필터링)
+      const loadHistory = async (pwd) => {
+        if (!SCRIPT_URL) return; 
+        setIsLoadingHistory(true);
+        setShowHistory(true); 
+        try {
+          // 🔒 서버에 인증(0548) 요청
+          const response = await fetch(`${SCRIPT_URL}?action=history&pwd=${encodeURIComponent(pwd)}&t=${new Date().getTime()}`);
+          const rawData = await response.json();
+          
+          if (rawData.error) {
+            alert("서버 인증 실패: 암호가 틀렸거나 권한이 없습니다. 🚫");
+            setShowHistory(false);
+          } else {
+            // 서버에서 이미 뒤집혀(최신순)서 온 데이터를 정제합니다.
+            const cleanData = sanitizeServerData(rawData);
+
+            // 💡 [추가 기능] 오늘 포함 3일치(이틀 전) 데이터까지만 남기기
+            const now = new Date();
+            // 자정 기준으로 이틀 전의 시간을 구합니다.
+            const threeDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2);
+
+            const filteredData = cleanData.filter(record => {
+              if (!record.date) return false;
+              let recordDate = null;
+              const dateStr = String(record.date);
+
+              // 날짜 파싱 (Date 객체 형태거나 정규식 패턴일 경우)
+              if (dateStr.includes('T')) {
+                recordDate = new Date(dateStr);
+              } else {
+                const match = dateStr.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
+                if (match) {
+                  // month는 0부터 시작하므로 -1
+                  recordDate = new Date(match[1], parseInt(match[2]) - 1, parseInt(match[3]));
+                }
+              }
+
+              if (recordDate) {
+                // 시간은 00:00:00으로 세팅하여 날짜끼리만 비교
+                recordDate.setHours(0, 0, 0, 0);
+                return recordDate.getTime() >= threeDaysAgo.getTime();
+              }
+              return false; // 날짜 형식을 완전히 알 수 없는 경우 노출 안함
+            });
+
+            setPastRecords(filteredData);
+          }
+        } catch (e) { 
+          console.log("기록 불러오기 실패", e); 
+          setShowHistory(false);
+        }
+        setIsLoadingHistory(false);
+      };
+
+      const formatShortDate = (dateStr) => {
+        if (!dateStr) return '';
+        if (String(dateStr).includes('T')) {
+          const d = new Date(dateStr);
+          if (!isNaN(d.getTime())) {
+            const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            return `${d.getFullYear().toString().slice(2)}.${d.getMonth() + 1}.${d.getDate()}(${dayNames[d.getDay()]})`;
+          }
+        }
+        const regex = /(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\s*(.)요일/;
+        const match = String(dateStr).match(regex);
+        return match ? `${match[1].slice(2)}.${match[2]}.${match[3]}(${match[4]})` : dateStr;
+      };
+
+      const formatShortTime = (timeStr) => {
+        if (!timeStr) return '';
+        if (String(timeStr).includes('T')) {
+          const d = new Date(timeStr);
+          if (!isNaN(d.getTime())) {
+            return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+          }
+        }
+        return timeStr;
+      };
+
+      const latestTime = useMemo(() => {
+        if (safeRecords.length === 0) return null;
+        const activeRecords = safeRecords.filter(r => !r.isLeft);
+        if (activeRecords.length === 0) return null;
+        const timesInMinutes = activeRecords.map(r => {
+          const timeVal = r.time || '00:00';
+          const [h, m] = String(timeVal).split(':').map(Number);
+          return (h || 0) * 60 + (m || 0);
+        });
+        const maxTime = Math.max(...timesInMinutes);
+        return `${Math.floor(maxTime / 60).toString().padStart(2, '0')}:${(maxTime % 60).toString().padStart(2, '0')}`;
+      }, [safeRecords]);
+
+      const myRecord = safeRecords.find(r => r.id === myRecordId);
+      const displayUsers = [...safeRecords].sort((a, b) => String(a.time || '').localeCompare(String(b.time || '')));
+      
+      const showForm = !myRecord || myRecord.isLeft || isEditing;
+      const amILatest = myRecord && !myRecord.isLeft && myRecord.time === latestTime;
+
+      // ✨ 비밀번호 확인 함수
+      const handlePasswordSubmit = () => {
+        if (historyPassword === '0548') {
+          loadHistory(historyPassword); 
+          setShowPasswordModal(false);
+          setHistoryPassword('');
+        } else {
+          alert("비밀번호가 일치하지 않습니다. 🚫");
+          setHistoryPassword('');
+        }
+      };
+
+      // 프로필 아바타 컬러도 쿨톤(블루, 스카이, 인디고, 틸 등)으로 통일!
+      const avatarColors = [
+        'bg-sky-100 text-sky-700 border-sky-200',
+        'bg-blue-100 text-blue-700 border-blue-200',
+        'bg-indigo-100 text-indigo-700 border-indigo-200',
+        'bg-cyan-100 text-cyan-700 border-cyan-200',
+        'bg-teal-100 text-teal-700 border-teal-200'
+      ];
+
+      return (
+        <div className="min-h-screen bg-gradient-to-b from-[#3ebaf4] to-[#f5fbfd] text-blue-950 p-4 selection:bg-sky-200 relative overflow-x-hidden font-body">
+          <style>{`
+            @font-face { font-family: 'KerisKeduLine'; src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/2601-3@1.0/KERISKEDU_Line.woff2') format('woff2'); font-weight: normal; font-display: swap; }
+            @font-face { font-family: 'CookieRun'; src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/CookieRun-Regular.woff') format('woff'); font-weight: normal; font-display: swap; }
+            @font-face { font-family: 'OmuDaye'; src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2304-01@1.0/omyu_pretty.woff2') format('woff2'); font-weight: normal; font-display: swap; }
+            .font-title { font-family: 'KerisKeduLine', sans-serif; }
+            .font-date { font-family: 'CookieRun', sans-serif; }
+            .font-body { font-family: 'OmuDaye', sans-serif; letter-spacing: 0.5px; }
+            ::-webkit-scrollbar { width: 8px; }
+            ::-webkit-scrollbar-thumb { background: #9cdcf9; border-radius: 10px; }
+          `}</style>
+
+          <div className="max-w-md lg:max-w-5xl mx-auto relative z-10 px-1 lg:px-4">
+            <header className="text-center pt-6 pb-6 lg:pb-8">
+              <h1 className="text-3xl lg:text-4xl font-title text-blue-950 mb-4 drop-shadow-sm flex items-center justify-center gap-2">🏫 홍주초 초과근무 현황 🌃</h1>
+              <button onClick={() => setShowPasswordModal(true)} className="inline-flex items-center justify-center gap-1.5 bg-white/80 px-4 py-2 rounded-full shadow-md border-[3px] border-sky-100 hover:bg-sky-50 transition-colors">
+                <ChevronLeft className="w-5 h-5 text-blue-700" />
+                <span className="text-base lg:text-lg font-date text-blue-800 tracking-wide pt-1 pr-1">{dateString}</span>
+              </button>
+            </header>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start">
+              
+              {/* 📱 폼 & 상태 영역 */}
+              <div className="bg-white/95 backdrop-blur-sm rounded-[2rem] p-6 shadow-xl border-4 border-sky-50">
+                {showForm ? (
+                  <div className="space-y-4">
+                    <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2 justify-center mb-5 bg-sky-50 py-2.5 rounded-2xl">
+                      <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" /> 언제 퇴근하실 예정이신가요?
+                    </h2>
+                    
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <div className="flex bg-sky-50/50 rounded-2xl border-2 border-sky-100 overflow-hidden focus-within:border-sky-300 focus-within:bg-white transition-all">
+                          <div className="px-4 flex items-center bg-sky-100/50 text-sky-600"><User className="w-5 h-5" /></div>
+                          <input 
+                            type="text" 
+                            placeholder="이름 (필수)" 
+                            className="w-full bg-transparent p-3 outline-none text-blue-950 placeholder-slate-400 font-bold text-lg"
+                            value={name}
+                            onChange={(e) => setName(e.target.value)}
+                            onFocus={() => !isEditing && suggestions.length > 0}
+                          />
+                        </div>
+                        {suggestions.length > 0 && (
+                          <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-2xl border-2 border-sky-100 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                            <div className="p-2 bg-sky-50/50 text-sky-600 text-xs font-bold px-4 py-1 flex items-center gap-1">
+                              <ChevronDown className="w-3 h-3" /> 본인의 정보를 선택하면 자동 입력됩니다
+                            </div>
+                            {suggestions.map((p, i) => (
+                              <button
+                                key={i}
+                                onClick={() => handleSelectSuggestion(p)}
+                                className="w-full text-left p-3 px-4 hover:bg-sky-50 transition-colors flex items-center justify-between border-t border-sky-50 first:border-t-0"
+                              >
+                                <div>
+                                  <span className="font-bold text-blue-900 text-lg">{p.name}</span>
+                                  {p.location && <span className="ml-2 text-slate-400 text-sm">({p.location})</span>}
+                                  {p.contact && <span className="ml-2 text-slate-400 text-sm tracking-tight">📞 {p.contact}</span>}
+                                </div>
+                                {p.todayId && <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold shrink-0 ml-2">오늘 등록됨</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex gap-2">
+                        <div className="flex-1 flex bg-sky-50/50 rounded-2xl border-2 border-sky-100 overflow-hidden focus-within:border-sky-300 focus-within:bg-white transition-all">
+                          <div className="px-4 flex items-center bg-sky-100/50 text-sky-600"><Clock className="w-5 h-5" /></div>
+                          <select className="w-full bg-transparent p-3 outline-none text-blue-900 font-bold text-lg appearance-none cursor-pointer" value={hour} onChange={(e) => setHour(e.target.value)}>
+                            {hourOptions.map(h => <option key={h} value={h}>{h}시</option>)}
+                          </select>
+                        </div>
+                        <div className="flex-1 flex bg-sky-50/50 rounded-2xl border-2 border-sky-100 overflow-hidden focus-within:border-sky-300 focus-within:bg-white transition-all">
+                          <select className="w-full bg-transparent p-3 outline-none text-blue-900 font-bold text-lg appearance-none cursor-pointer" value={minute} onChange={(e) => setMinute(e.target.value)}>
+                            {minuteOptions.map(m => <option key={m} value={m}>{m}분</option>)}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex bg-sky-50/50 rounded-2xl border-2 border-sky-100 overflow-hidden focus-within:border-sky-300 focus-within:bg-white transition-all">
+                        <div className="px-4 flex items-center bg-sky-100/50 text-sky-600"><Phone className="w-5 h-5" /></div>
+                        <input type="text" placeholder="연락처 (필수)" className="w-full bg-transparent p-3 outline-none text-blue-950 placeholder-slate-400 text-lg" value={contact} onChange={(e) => setContact(e.target.value)} onBlur={(e) => setContact(formatPhoneNumber(e.target.value))} />
+                      </div>
+
+                      <div className="flex bg-sky-50/50 rounded-2xl border-2 border-sky-100 overflow-hidden focus-within:border-sky-300 focus-within:bg-white transition-all">
+                        <div className="px-4 flex items-center bg-sky-100/50 text-sky-600"><MapPin className="w-5 h-5" /></div>
+                        <input type="text" placeholder="교실/부서 (선택)" className="w-full bg-transparent p-3 outline-none text-blue-950 placeholder-slate-400 text-lg" value={location} onChange={(e) => setLocation(e.target.value)} />
+                      </div>
+
+                      <div className="flex bg-sky-50/50 rounded-2xl border-2 border-sky-100 overflow-hidden focus-within:border-sky-300 focus-within:bg-white transition-all">
+                        <div className="px-4 flex items-center bg-sky-100/50 text-sky-600"><MessageSquare className="w-5 h-5" /></div>
+                        <input type="text" placeholder="간단한 메모 (선택)" className="w-full bg-transparent p-3 outline-none text-blue-950 placeholder-slate-400 text-lg" value={memo} onChange={(e) => setMemo(e.target.value)} />
+                      </div>
+
+                      <button onClick={handleSave} className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold text-xl py-3 rounded-2xl shadow-lg mt-4 transition-all transform hover:scale-[1.02] active:scale-95">
+                        {isEditing ? '수정 완료' : '저장하기 꾹!'}
+                      </button>
+                      {isEditing && <button onClick={() => setIsEditing(false)} className="w-full bg-slate-100 text-slate-500 font-bold text-lg py-2 rounded-2xl mt-2 transition-all hover:bg-slate-200">수정 취소</button>}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center space-y-3 py-4 lg:py-8">
+                    <div className="inline-block p-4 bg-sky-100 rounded-full mb-2 animate-bounce shadow-sm"><CheckCircle2 className="w-10 h-10 text-blue-600" /></div>
+                    <div>
+                      {myRecord.location && <p className="text-slate-400 text-base mb-1">{myRecord.location}</p>}
+                      <p className="text-xl font-bold text-blue-900"><span className="text-blue-700 text-2xl">{myRecord.name}</span> 선생님은</p>
+                      <p className="text-xl font-black mt-3 text-blue-950 bg-sky-50 inline-block px-5 py-2.5 rounded-2xl border border-sky-100 font-date shadow-sm">{myRecord.time} 퇴근 예정</p>
+                    </div>
+                    {amILatest && <div className="mt-5 mb-2"><span className="bg-blue-600 text-white font-date font-bold text-sm px-4 py-1.5 rounded-full animate-pulse inline-block shadow-md">🚨 문단속 담당 예정</span></div>}
+                    <div className="flex gap-4 pt-6 border-t-2 border-dashed border-sky-100 mt-6">
+                      <button onClick={() => { 
+                        setName(myRecord.name || ''); 
+                        setLocation(myRecord.location || ''); 
+                        setContact(myRecord.contact || ''); 
+                        setMemo(myRecord.memo || ''); 
+                        const timeStr = myRecord.time || '00:00';
+                        const [h, m] = timeStr.split(':'); 
+                        setHour(h || '09'); setMinute(m || '00'); 
+                        setIsEditing(true); 
+                      }} className="flex-1 flex items-center justify-center gap-2 bg-emerald-50 text-emerald-600 border border-emerald-200 font-bold text-lg py-3 rounded-2xl hover:bg-emerald-100 transition-colors"><Edit2 className="w-5 h-5" /> 수정</button>
+                      <button onClick={handleLeave} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 transition-colors text-white font-bold text-lg py-3 rounded-2xl shadow-md"><LogOut className="w-5 h-5" /> 퇴근!</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 📋 모두의 상태 리스트 영역 */}
+              <div className="bg-white/95 backdrop-blur-sm rounded-[2rem] p-5 lg:p-6 shadow-xl border-4 border-sky-100/50 h-full flex flex-col">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+                  <h2 className="text-xl font-bold text-blue-900 flex items-center gap-2">
+                    👀 오늘의 초과근무 현황
+                    <button onClick={handleManualRefresh} className={`p-1.5 bg-slate-100 text-slate-500 rounded-full hover:bg-slate-200 transition-all ${isRefreshing ? 'animate-spin' : ''}`} title="수동 새로고침">
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <button onClick={openNewProxyModal} className="text-sm bg-white text-emerald-600 px-3 py-1.5 rounded-full font-bold border-2 border-emerald-200 shadow-sm hover:bg-emerald-50 transition-colors">
+                      대리 입력
+                    </button>
+                    <span className="bg-sky-100 text-blue-700 px-3 py-1.5 rounded-full text-sm font-bold font-date shadow-sm border border-sky-200">현재 {displayUsers.filter(u => !u.isLeft).length}명</span>
+                  </div>
+                </div>
+                
+                {displayUsers.length === 0 ? (
+                  <div className="text-center py-12 flex-1 flex flex-col items-center justify-center bg-sky-50/50 rounded-2xl border-2 border-dashed border-sky-200"><span className="text-3xl block mb-3">🎉</span><p className="text-slate-500 font-bold text-lg leading-snug">아직 초과근무 등록한 선생님이 없어요!<br/>칼퇴를 기원합니다 ◡̈</p></div>
+                ) : (
+                  <div className="space-y-3 flex-1">
+                    {displayUsers.map((user, index) => {
+                      const isLatest = !user.isLeft && user.time === latestTime;
+                      return (
+                        <div key={user.id} className={`flex items-start p-4 rounded-2xl transition-all ${user.isLeft ? 'bg-slate-50/60' : isLatest ? 'bg-white border-2 border-sky-200 shadow-md transform scale-[1.01]' : 'bg-white border border-sky-100 shadow-sm'}`}>
+                          <div className="flex gap-4 w-full">
+                            <div className={`shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-xl border font-date mt-0.5 ${user.isLeft ? 'bg-slate-200 text-slate-400 border-slate-300' : avatarColors[index % avatarColors.length]}`}>{String(user.name || '?').charAt(0)}</div>
+                            <div className="flex flex-col flex-1 justify-center">
+                              <div className="flex items-baseline gap-2 flex-wrap mb-1 relative">
+                                <p className={`font-bold text-lg lg:text-xl ${user.isLeft ? 'text-slate-400 line-through decoration-2' : 'text-blue-900'}`}>{user.name}</p>
+                                <p className={`font-black font-date text-lg tracking-tight ${user.isLeft ? 'text-slate-400 line-through decoration-2' : isLatest ? 'text-blue-700' : 'text-slate-500'}`}>{user.time}</p>
+                                {user.isLeft && user.leaveTime && <p className="font-bold font-date text-sm text-slate-500">({user.leaveTime} 퇴근)</p>}
+                                {isLatest && !user.isLeft && <span className="flex items-center gap-1 text-[11px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold shadow-sm animate-pulse font-date ml-1 self-center">최종 담당</span>}
+                                
+                                <button 
+                                  onClick={() => openEditProxyModal(user)} 
+                                  className={`ml-auto p-1.5 rounded-lg border transition-colors ${user.isLeft ? 'bg-slate-200/50 border-slate-300 text-slate-500 hover:text-slate-700 hover:bg-slate-100' : 'bg-slate-50 border-slate-200 text-slate-400 hover:text-blue-500'}`} 
+                                  title={user.isLeft ? "퇴근 취소(복구) 및 수정" : "대리 수정 및 퇴근"}
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                
+                              </div>
+                              {(user.location || user.contact || user.memo) && (
+                                <div className="flex flex-col items-start gap-1 mt-0.5">
+                                  {(user.location || user.contact) && (
+                                    <p className={`text-sm lg:text-base font-medium leading-relaxed ${user.isLeft ? 'text-slate-400' : 'text-slate-500'}`}>
+                                      {user.location} {user.location && user.contact && <span className="mx-2"></span>}
+                                      {user.contact && <span className={`inline-flex items-center gap-1 ${user.isLeft ? 'text-slate-400' : 'text-slate-500'}`}>📞 {user.contact}</span>}
+                                    </p>
+                                  )}
+                                  {user.memo && <p className={`text-sm mt-0.5 font-medium inline-block px-2.5 py-1 rounded-lg border ${user.isLeft ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-sky-50 text-blue-700 border-sky-100'}`}>{user.memo}</p>}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {displayUsers.filter(u => !u.isLeft).length > 0 && <div className="mt-5 p-4 bg-sky-50/80 rounded-xl flex items-start gap-3 text-slate-600 text-base border border-sky-100 shadow-sm leading-snug shrink-0"><span className="text-xl mt-0.5">📢</span><p>최종 퇴청자는 <span className="font-extrabold text-blue-700">전기 차단, 경비 셋팅</span> 부탁드립니다. 🚨</p></div>}
+              </div>
+            </div>
+          </div>
+
+          {/* ✨ [대리 전용] 모달 팝업 ✨ */}
+          {showProxyModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-[2rem] p-6 lg:p-8 w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in border-4 border-emerald-100">
+                <div className="text-center pb-4 border-b-2 border-emerald-50 mb-5">
+                  <h3 className="text-2xl font-bold text-blue-900 flex items-center justify-center gap-2">
+                    <User className="w-6 h-6 text-emerald-500" />
+                    {pId ? '대리 정보 수정' : '대리 근무자 입력'}
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-1 font-bold">내 정보가 덮어씌워지지 않고 안전하게 전송됩니다.</p>
+                </div>
+                
+                <div className="space-y-3">
+                  <div className="flex bg-emerald-50/50 rounded-2xl border-2 border-emerald-100 overflow-hidden focus-within:border-emerald-300 transition-all">
+                    <div className="px-4 flex items-center bg-emerald-100/50 text-emerald-500"><User className="w-5 h-5" /></div>
+                    <input type="text" placeholder="이름 (필수)" className="w-full bg-transparent p-3 outline-none text-blue-950 font-bold text-lg" value={pName} onChange={(e) => setPName(e.target.value)} />
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex bg-emerald-50/50 rounded-2xl border-2 border-emerald-100 overflow-hidden focus-within:border-emerald-300 transition-all">
+                      <div className="px-4 flex items-center bg-emerald-100/50 text-emerald-500"><Clock className="w-5 h-5" /></div>
+                      <select className="w-full bg-transparent p-3 outline-none text-blue-900 font-bold text-lg cursor-pointer" value={pHour} onChange={(e) => setPHour(e.target.value)}>
+                        {hourOptions.map(h => <option key={h} value={h}>{h}시</option>)}
+                      </select>
+                    </div>
+                    <div className="flex-1 flex bg-emerald-50/50 rounded-2xl border-2 border-emerald-100 overflow-hidden focus-within:border-emerald-300 transition-all">
+                      <select className="w-full bg-transparent p-3 outline-none text-blue-900 font-bold text-lg cursor-pointer" value={pMinute} onChange={(e) => setPMinute(e.target.value)}>
+                        {minuteOptions.map(m => <option key={m} value={m}>{m}분</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex bg-emerald-50/50 rounded-2xl border-2 border-emerald-100 overflow-hidden focus-within:border-emerald-300 transition-all">
+                    <div className="px-4 flex items-center bg-emerald-100/50 text-emerald-500"><Phone className="w-5 h-5" /></div>
+                    <input type="text" placeholder="연락처 (필수)" className="w-full bg-transparent p-3 outline-none text-blue-950 text-lg" value={pContact} onChange={(e) => setPContact(e.target.value)} onBlur={(e) => setPContact(formatPhoneNumber(e.target.value))} />
+                  </div>
+                  <div className="flex bg-emerald-50/50 rounded-2xl border-2 border-emerald-100 overflow-hidden focus-within:border-emerald-300 transition-all">
+                    <div className="px-4 flex items-center bg-emerald-100/50 text-emerald-500"><MapPin className="w-5 h-5" /></div>
+                    <input type="text" placeholder="교실/부서 (선택)" className="w-full bg-transparent p-3 outline-none text-blue-950 text-lg" value={pLocation} onChange={(e) => setPLocation(e.target.value)} />
+                  </div>
+                  <div className="flex bg-emerald-50/50 rounded-2xl border-2 border-emerald-100 overflow-hidden focus-within:border-emerald-300 transition-all">
+                    <div className="px-4 flex items-center bg-emerald-100/50 text-emerald-500"><MessageSquare className="w-5 h-5" /></div>
+                    <input type="text" placeholder="메모 (선택)" className="w-full bg-transparent p-3 outline-none text-blue-950 text-lg" value={pMemo} onChange={(e) => setPMemo(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col gap-2">
+                  <button onClick={handleProxySave} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-lg py-3 rounded-2xl shadow-md transition-all">
+                    {pId ? '수정 및 복구(근무중) 처리하기' : '대리 저장 등록하기'}
+                  </button>
+                  {pId && (
+                    <button onClick={handleProxyLeave} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold text-lg py-3 rounded-2xl shadow-md transition-all mt-1 flex items-center justify-center gap-2">
+                      <LogOut className="w-5 h-5" /> 이 분 대신 퇴근 처리하기!
+                    </button>
+                  )}
+                  <button onClick={() => setShowProxyModal(false)} className="w-full bg-slate-100 text-slate-500 font-bold text-lg py-3 rounded-2xl hover:bg-slate-200 transition-all mt-1">
+                    취소
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ✨ [보안] 비밀번호 입력 모달 ✨ */}
+          {showPasswordModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-[2rem] p-6 lg:p-8 w-full max-w-sm shadow-2xl relative animate-in zoom-in border-4 border-sky-100 text-center">
+                <div className="inline-block p-3 bg-sky-50 rounded-full mb-3"><AlertCircle className="w-8 h-8 text-blue-500" /></div>
+                <h3 className="text-2xl font-bold text-blue-900 mb-2">🔒 관리자 인증</h3>
+                <p className="text-sm text-slate-500 mb-6 font-bold">과거 기록을 보려면 비밀번호를 입력하세요.</p>
+                <input
+                  type="password"
+                  value={historyPassword}
+                  onChange={(e) => setHistoryPassword(e.target.value)}
+                  placeholder="비밀번호 4자리"
+                  className="w-full bg-slate-50 p-4 rounded-xl outline-none text-center font-black text-2xl border-2 border-slate-100 focus:border-sky-300 focus:bg-white transition-all mb-6 tracking-widest text-blue-950"
+                  onKeyDown={(e) => { if(e.key === 'Enter') handlePasswordSubmit(); }}
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => { setShowPasswordModal(false); setHistoryPassword(''); }} className="flex-1 bg-slate-100 text-slate-500 font-bold text-lg py-3 rounded-xl hover:bg-slate-200 transition-colors">돌아가기</button>
+                  <button onClick={handlePasswordSubmit} className="flex-1 bg-blue-600 text-white font-bold text-lg py-3 rounded-xl hover:bg-blue-700 transition-colors shadow-md">확인</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 지난 내역 팝업 */}
+          {showHistory && (
+            <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-[2rem] p-6 lg:p-8 max-w-2xl w-full shadow-2xl relative animate-in fade-in zoom-in border-4 border-sky-100 max-h-[85vh] flex flex-col">
+                <button onClick={() => setShowHistory(false)} className="absolute top-5 right-5 text-slate-400 bg-slate-100 rounded-full p-2"><X className="w-5 h-5 lg:w-6 lg:h-6" /></button>
+                <div className="text-center pb-5 pt-2 border-b-2 border-slate-100 shrink-0"><h3 className="text-2xl font-bold text-blue-900">지난 내역 보기</h3></div>
+                <div className="overflow-y-auto flex-1 py-4 px-2 lg:px-4 mt-2">
+                  {!SCRIPT_URL ? <div className="text-center py-6"><div className="text-4xl mb-4">📊</div><p className="text-lg text-slate-500">시트가 연결되지 않았습니다!</p></div> : isLoadingHistory ? <div className="text-center py-12 text-slate-400 font-bold text-xl animate-pulse">기록을 불러오는 중... 🔍</div> : safePastRecords.length === 0 ? <div className="text-center py-12 text-slate-400 font-bold text-xl">저장된 기록이 없습니다.</div> : (
+                    <div className="space-y-1">
+                      {safePastRecords.map((record, i) => {
+                        const isLeft = String(record.status || '').includes('퇴근');
+                        const displayTime = isLeft ? String(record.status).split(' ')[0] : formatShortTime(record.time);
+                        return (
+                          <div key={i} className="flex items-center justify-between py-3 border-b border-slate-100 last:border-0 hover:bg-sky-50/50 px-2 rounded-xl transition-colors">
+                            <div className="flex items-center gap-2 lg:gap-4 w-full">
+                              <span className="text-base lg:text-lg font-bold text-slate-500 w-[85px] lg:w-[100px] shrink-0">{formatShortDate(record.date)}</span>
+                              <span className="text-base lg:text-lg font-bold text-blue-900 w-[60px] lg:w-[75px] shrink-0 truncate">{record.name}</span>
+                              <span className={`text-base lg:text-lg font-bold ${isLeft ? 'text-slate-400' : 'text-blue-700'}`}>{displayTime}</span>
+                              <div className="flex-1 flex justify-end pl-1">
+                                <span className={`text-sm lg:text-base font-bold px-3 py-1.5 rounded-full shadow-sm ${isLeft ? 'bg-slate-100 text-slate-500' : 'bg-sky-100 text-blue-700 border border-sky-200'}`}>{isLeft ? '퇴근완료' : '근무중'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setShowHistory(false)} className="w-full mt-5 bg-blue-950 hover:bg-blue-900 text-white font-bold text-xl py-3 rounded-2xl shrink-0 transition-colors">닫기</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
