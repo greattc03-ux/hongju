@@ -15,7 +15,8 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo } from 'https://esm.sh/react@18';
     import { createRoot } from 'https://esm.sh/react-dom@18/client';
-    import { Clock, MapPin, User, LogOut, Edit2, AlertCircle, CheckCircle2, Star, ChevronLeft, X, MessageSquare, Phone, ChevronDown, RefreshCw } from 'https://esm.sh/lucide-react@0.292.0';
+    // 💡 Lock 아이콘이 추가되었습니다.
+    import { Clock, MapPin, User, LogOut, Edit2, AlertCircle, CheckCircle2, Star, ChevronLeft, X, MessageSquare, Phone, ChevronDown, RefreshCw, Lock } from 'https://esm.sh/lucide-react@0.292.0';
 
     // 🔥 구글 시트 URL
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwuwO8lQmoIRQYlAQdhiO2FnZzD82TrXs7FqnICPup72uuzSFAxvUUXruMbxAorX-9r/exec"; 
@@ -36,6 +37,10 @@
     };
 
     function App() {
+      // ✨ [추가된 기능] 앱 전체 잠금 상태 및 로그인 폼 상태
+      const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('isAuth') === 'true');
+      const [loginPassword, setLoginPassword] = useState('');
+
       const [currentDate, setCurrentDate] = useState(new Date());
       const [name, setName] = useState('');
       const [location, setLocation] = useState('');
@@ -123,24 +128,24 @@
           const todayStr1 = `${currentYear}년 ${currentMonth}월 ${currentDay}일`;
           const todayStr2 = `${currentYear}.${currentMonth}.${currentDay}`;
           const todayStr3 = `${currentYear}-${currentMonth < 10 ? '0'+currentMonth : currentMonth}-${currentDay < 10 ? '0'+currentDay : currentDay}`;
-          const todayStr4 = `${currentYear}년 ${currentMonth}월 ${currentDay}일 ${days[currentDate.getDay()]}요일`; // 💡 요일까지 포함된 완벽한 오늘 문자열!
+          const todayStr4 = `${currentYear}년 ${currentMonth}월 ${currentDay}일 ${days[currentDate.getDay()]}요일`;
 
           const todayRecords = data.filter(r => {
             if (!r.date) return false;
             const dStr = String(r.date).replace(/'/g, '').trim();
             
-            // 1. 문자열 직접 비교 (요일 포함 형태까지 확실하게 체크!)
+            // 1. 문자열 직접 비교
             if (
               dStr.includes(todayStr1) || 
               dStr.includes(todayStr2) || 
               dStr.includes(todayStr3) || 
-              dStr.includes(todayStr4) || // 요일 포함 매칭
-              dStr.includes(dateString)    // 화면 상단에 표시되는 날짜(요일 포함) 매칭
+              dStr.includes(todayStr4) || 
+              dStr.includes(dateString)  
             ) {
               return true;
             }
             
-            // 2. Date 객체로 변환 가능한 경우 (T가 포함된 ISO 형식 등)
+            // 2. Date 객체로 변환 가능한 경우
             if (dStr.includes('T')) {
               const d = new Date(dStr);
               if (!isNaN(d.getTime())) {
@@ -150,7 +155,7 @@
               }
             }
             
-            // 3. 정규식으로 연/월/일 숫자만 확실하게 뽑아내서 오늘이 맞는지 크로스 체크 (최후의 보루!)
+            // 3. 정규식으로 연/월/일 숫자만 확실하게 뽑아내서 비교
             const match = dStr.match(/(\d{4})[^\d]*(\d{1,2})[^\d]*(\d{1,2})/);
             if (match) {
                if (parseInt(match[1]) === currentYear && 
@@ -196,6 +201,9 @@
 
       // ✨ 서버 및 로컬 데이터 동기화
       useEffect(() => {
+        // 인증되지 않았으면 데이터 로드를 보류합니다.
+        if (!isAuthenticated) return;
+
         const loadInitialData = async () => {
           const savedMemory = getSafeObject('userMemory');
           const savedMyId = localStorage.getItem('myRecordId');
@@ -259,7 +267,7 @@
           clearInterval(intervalId);
           document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
-      }, [hourOptions, currentDate, dateString]);
+      }, [hourOptions, currentDate, dateString, isAuthenticated]);
 
       const safeRecords = Array.isArray(records) ? records : [];
       const safePastRecords = Array.isArray(pastRecords) ? pastRecords : [];
@@ -424,7 +432,7 @@
         setTimeout(() => setIsRefreshing(false), 600); 
       };
 
-      // ✨ 대리 입력 모달 열기 (새로 등록)
+      // ✨ 대리 입력 모달 열기
       const openNewProxyModal = () => {
         setPId(null);
         setPName('');
@@ -436,7 +444,7 @@
         setShowProxyModal(true);
       };
 
-      // ✨ 대리 입력 모달 열기 (기존 인원 수정 및 '퇴근 취소 복구')
+      // ✨ 대리 입력 모달 열기 (기존 인원 수정)
       const openEditProxyModal = (user) => {
         setPId(user.id);
         setPName(user.name || '');
@@ -450,7 +458,7 @@
         setShowProxyModal(true);
       };
 
-      // ✨ 대리 저장/수정 함수 (복구 기능 포함)
+      // ✨ 대리 저장/수정 함수
       const handleProxySave = () => {
         if (!pName || !pHour || !pContact) {
           alert("대리 입력 대상의 이름, 시간, 연락처를 모두 입력해주세요!");
@@ -467,7 +475,6 @@
 
         if (pId) {
           actionType = 'update';
-          // 💡 수정 시 무조건 isLeft를 false로 만들어서 '근무중' 상태 복구
           currentRecord = { id: recordId, name: pName, location: pLocation, contact: formattedContact, memo: pMemo, time: timeString, isLeft: false };
           updatedRecords = safeRecords.map(r => r.id === pId ? currentRecord : r);
         } else {
@@ -517,13 +524,12 @@
         }
       };
 
-      // ✨ [보안 및 날짜 패치] 과거 내역 불러오기 (비밀번호 전송 & 3일치 필터링)
+      // ✨ 과거 내역 불러오기
       const loadHistory = async (pwd) => {
         if (!SCRIPT_URL) return; 
         setIsLoadingHistory(true);
         setShowHistory(true); 
         try {
-          // 🔒 서버에 인증(0548) 요청
           const response = await fetch(`${SCRIPT_URL}?action=history&pwd=${encodeURIComponent(pwd)}&t=${new Date().getTime()}`);
           const rawData = await response.json();
           
@@ -531,12 +537,8 @@
             alert("서버 인증 실패: 암호가 틀렸거나 권한이 없습니다. 🚫");
             setShowHistory(false);
           } else {
-            // 서버에서 이미 뒤집혀(최신순)서 온 데이터를 정제합니다.
             const cleanData = sanitizeServerData(rawData);
-
-            // 💡 [추가 기능] 오늘 포함 3일치(이틀 전) 데이터까지만 남기기
             const now = new Date();
-            // 자정 기준으로 이틀 전의 시간을 구합니다.
             const threeDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2);
 
             const filteredData = cleanData.filter(record => {
@@ -544,23 +546,20 @@
               let recordDate = null;
               const dateStr = String(record.date);
 
-              // 날짜 파싱 (Date 객체 형태거나 정규식 패턴일 경우)
               if (dateStr.includes('T')) {
                 recordDate = new Date(dateStr);
               } else {
                 const match = dateStr.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
                 if (match) {
-                  // month는 0부터 시작하므로 -1
                   recordDate = new Date(match[1], parseInt(match[2]) - 1, parseInt(match[3]));
                 }
               }
 
               if (recordDate) {
-                // 시간은 00:00:00으로 세팅하여 날짜끼리만 비교
                 recordDate.setHours(0, 0, 0, 0);
                 return recordDate.getTime() >= threeDaysAgo.getTime();
               }
-              return false; // 날짜 형식을 완전히 알 수 없는 경우 노출 안함
+              return false;
             });
 
             setPastRecords(filteredData);
@@ -616,7 +615,6 @@
       const showForm = !myRecord || myRecord.isLeft || isEditing;
       const amILatest = myRecord && !myRecord.isLeft && myRecord.time === latestTime;
 
-      // ✨ 비밀번호 확인 함수
       const handlePasswordSubmit = () => {
         if (historyPassword === '0548') {
           loadHistory(historyPassword); 
@@ -628,7 +626,17 @@
         }
       };
 
-      // 프로필 아바타 컬러도 쿨톤(블루, 스카이, 인디고, 틸 등)으로 통일!
+      // ✨ [새로 추가된 기능] 첫 화면 로그인 인증 함수
+      const handleLoginSubmit = () => {
+        if (loginPassword === '0548') {
+          setIsAuthenticated(true);
+          sessionStorage.setItem('isAuth', 'true');
+        } else {
+          alert("비밀번호가 일치하지 않습니다. 🚫");
+          setLoginPassword('');
+        }
+      };
+
       const avatarColors = [
         'bg-sky-100 text-sky-700 border-sky-200',
         'bg-blue-100 text-blue-700 border-blue-200',
@@ -637,6 +645,44 @@
         'bg-teal-100 text-teal-700 border-teal-200'
       ];
 
+      // 🔒 인증되지 않았을 경우 보여줄 잠금 화면
+      if (!isAuthenticated) {
+        return (
+          <div className="min-h-screen bg-gradient-to-b from-[#3ebaf4] to-[#f5fbfd] flex items-center justify-center p-4 selection:bg-sky-200 relative font-body">
+            <style>{`
+              @font-face { font-family: 'OmuDaye'; src: url('https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2304-01@1.0/omyu_pretty.woff2') format('woff2'); font-weight: normal; font-display: swap; }
+              .font-body { font-family: 'OmuDaye', sans-serif; letter-spacing: 0.5px; }
+            `}</style>
+            
+            <div className="bg-white rounded-[2rem] p-8 w-full max-w-sm shadow-2xl relative animate-in zoom-in duration-300 border-4 border-sky-100 text-center">
+              <div className="inline-block p-4 bg-sky-50 rounded-full mb-4">
+                <Lock className="w-10 h-10 text-blue-500" />
+              </div>
+              <h2 className="text-3xl font-bold text-blue-900 mb-2">홍주초 초과근무</h2>
+              <p className="text-slate-500 mb-6 font-bold">입장하려면 비밀번호를 입력해주세요.</p>
+              
+              <input
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder="비밀번호 입력"
+                className="w-full bg-slate-50 p-4 rounded-xl outline-none text-center font-black text-2xl border-2 border-slate-100 focus:border-sky-300 focus:bg-white transition-all mb-6 tracking-widest text-blue-950"
+                onKeyDown={(e) => { if(e.key === 'Enter') handleLoginSubmit(); }}
+                autoFocus
+              />
+              
+              <button
+                onClick={handleLoginSubmit}
+                className="w-full bg-blue-600 text-white font-bold text-xl py-4 rounded-xl hover:bg-blue-700 transition-colors shadow-md transform active:scale-95"
+              >
+                입장하기
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      // 🔓 인증 성공 시 보여줄 메인 화면 (기존 코드)
       return (
         <div className="min-h-screen bg-gradient-to-b from-[#3ebaf4] to-[#f5fbfd] text-blue-950 p-4 selection:bg-sky-200 relative overflow-x-hidden font-body">
           <style>{`
@@ -957,5 +1003,4 @@
     root.render(<App />);
   </script>
 </body>
-
 </html>
